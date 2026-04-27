@@ -656,13 +656,14 @@
   <script>
     let UserName = "";
     let userID = "";
+    let loginEmail = "";
     let applicationName = "service-management";
     let userReport = "My_Users";
     let serviceReport = "Scan_QR_Service_Request";
     let ESNReport = "ESN_Scan_QR_Widget";
 
-    // const REPORT_BASE_URL = "https://creatorapp.zoho.in/wohr_parking/environment/development/service-management/#Report:"; // Development
-    const REPORT_BASE_URL = "https://creatorapp.zoho.in/wohr_parking/service-management/#Report:"; // Production
+    const REPORT_BASE_URL = "https://creatorapp.zoho.in/wohr_parking/environment/development/service-management/#Report:"; // Development
+    // const REPORT_BASE_URL = "https://creatorapp.zoho.in/wohr_parking/service-management/#Report:"; // Production
  
     const periodOther = { period: "this_month", from: null, to: null };
     const periodEsn   = { period: "this_month", from: null, to: null };
@@ -977,6 +978,9 @@
           Route_Name: currentRouteParam
         };
       }
+      function baseEsnParams(){
+        return { Route_Name: currentRouteParam };
+      }
 
       function bindCountRedirects(){
         $("#BreakdownAll").off("click.redirect").on("click.redirect", function(){
@@ -1037,15 +1041,15 @@
         });
 
         $("#esnPending").off("click.redirect").on("click.redirect", function(){
-          const p = baseParams();
+          const p = baseEsnParams();
           p.ESN_Status = "Pending";
           openReport("My_ESN", p);
         });
 
         $("#esnCompleted").off("click.redirect").on("click.redirect", function(){
-          const p = baseParams();
+          const p = baseEsnParams();
           p.ESN_Status = "Completed";
-          addAddedBetween(p, periodEsn);
+          addCompletionBetween(p, periodEsn);
           openReport("My_ESN", p);
         });
 
@@ -1078,9 +1082,10 @@
         });
 
         $("#meEsn").off("click.redirect").on("click.redirect", function () {
-          const p = baseParams();
+          const p = baseEsnParams();
           p.ESN_Status = "Completed";
-          addAddedBetween(p, periodMe);
+          p.Completed_By = userID;
+          addCompletionBetween(p, periodMe);
           openReport("My_ESN", p);
         });
       }
@@ -1357,21 +1362,26 @@
           .catch(err => { console.error(err, criteria); if(done) done(); });
       }
 
+      function buildEsnCriteria(extra){
+        extra = extra ? ' && ' + extra : '';
+        return '(' + currentRouteCriteria + extra + ')';
+      }
+
       function refreshESN(done){
         setLabelForSection("esn");
         ESN_Pending_NoPeriod(done);
       }
 
       function ESN_Pending_NoPeriod(done){
-        const criteria = buildCriteria(userID, currentRoute, `ESN_Status == "Pending"`);
+        const criteria = buildEsnCriteria(`ESN_Status == "Pending"`);
         ZOHO.CREATOR.API.getRecordCount({ appName: applicationName, reportName: ESNReport, criteria })
           .then(res => { setCount("#esnPending", res.result.records_count); ESN_Completed_Period(done); })
           .catch(err => { console.error(err, criteria); ESN_Completed_Period(done); });
       }
 
       function ESN_Completed_Period(done){
-        const addedCrit = addedTimeRangeCriteria(periodEsn);
-        const criteria = buildCriteria(userID, currentRoute, `ESN_Status == "Completed" && ${addedCrit}`);
+        const completionCrit = completionDateRangeCriteria(periodEsn);
+        const criteria = buildEsnCriteria(`ESN_Status == "Completed" && ${completionCrit}`);
         ZOHO.CREATOR.API.getRecordCount({ appName: applicationName, reportName: ESNReport, criteria })
           .then(res => { setCount("#esnCompleted", res.result.records_count); if(done) done(); })
           .catch(err => { console.error(err, criteria); if(done) done(); });
@@ -1388,6 +1398,16 @@
       function addClosedBetween_ME(params, state){
         const r = getRangeFromState(state);
         addBetween(params, "Closed_Date", formatZohoDate(r.from), formatZohoDate(r.to));
+      }
+
+      function completionDateRangeCriteria(state){
+        const r = getRangeFromState(state);
+        return `Completion_Date >= "${formatZohoDate(r.from)}" && Completion_Date <= "${formatZohoDate(r.to)}"`;
+      }
+
+      function addCompletionBetween(params, state){
+        const r = getRangeFromState(state);
+        addBetween(params, "Completion_Date", formatZohoDate(r.from), formatZohoDate(r.to));
       }
 
       function refreshMe(done){
@@ -1447,12 +1467,12 @@
       }
 
       function Me_ESN(done){
-        const addedCrit = addedTimeRangeCriteria(periodMe);
+        const completionCrit = completionDateRangeCriteria(periodMe);
 
         const criteria =
-          `(Service_Technician_Name.ID == ${userID}
+          `(Completed_By == ${userID}
             && ESN_Status == "Completed"
-            && ${addedCrit})`;
+            && ${completionCrit})`;
 
         ZOHO.CREATOR.API.getRecordCount({ appName: applicationName, reportName: ESNReport, criteria })
           .then(r => { setCount("#meEsn", Number(r.result.records_count || 0)); if(done) done(); })
@@ -1485,6 +1505,7 @@
 
               UserName = record.Name || "";
               userID = record.ID || "";
+              loginEmail = loginuser;
               currentRole = record.Role || "";
 
               /* ✅ MULTI-ROUTE FIX (counts + report URL + display) */
